@@ -1,6 +1,7 @@
 package mgoHelpers
 
 import (
+	"errors"
 	"time"
 
 	"gopkg.in/mgo.v2"
@@ -10,6 +11,10 @@ import (
 const (
 	mongoConnectionTimeout = 5 * time.Second
 )
+
+var errNoFactoryFunc = errors.New("No factory function")
+var errBulkOpAborted = errors.New("Bulk operation aborted")
+var errPanic = errors.New("Procedure panic")
 
 type MongoDb struct {
 	sess *mgo.Session
@@ -90,6 +95,10 @@ func GetDb() *MongoDb { return &MongoDb{} }
 type DbEntryBase struct {
 	ID bson.ObjectId `bson:"_id,omitempty" json:"objectid"`
 }
+
+func (e *DbEntryBase) BsonID() bson.ObjectId { return e.ID }
+
+func (e *DbEntryBase) SetBsonID(id bson.ObjectId) { e.ID = id }
 
 type MongoStorageInfo struct {
 	Database   *MongoDb
