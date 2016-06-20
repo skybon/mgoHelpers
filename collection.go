@@ -1,7 +1,8 @@
 package mgoHelpers
 
 import (
-	"github.com/skybon/semaphore"
+	"sync"
+
 	"gopkg.in/mgo.v2/bson"
 )
 
@@ -37,9 +38,15 @@ func (p *EntryErrorPairs) MakeEntrySlice() []MongoEntry {
 
 // MongoCollection represents abstact collection in MongoDB. It supports CRUD but should not be used directly. Instead you have to write a wrapper for your own data type.
 type MongoCollection struct {
+	sync.Mutex
 	MongoStorageInfo
-	semaphore   semaphore.Semaphore
 	factoryFunc func(*MongoCollection, interface{}) MongoEntry
+}
+
+func (c *MongoCollection) MutexExec(cb func()) {
+	c.Lock()
+	defer c.Unlock()
+	cb()
 }
 
 // SetFactoryFunc sets the object factory function used by Create for creation of new objects.
@@ -68,8 +75,8 @@ func (c *MongoCollection) makeOne(factoryFuncParam interface{}) (entry MongoEntr
 func (c *MongoCollection) createCore(factoryFuncParamSet []interface{}) (entries []MongoEntry, err error) {
 	var entryerr EntryErrorPairs
 	for _, params := range factoryFuncParamSet {
-		entry, err := c.makeOne(params)
-		entryerr = append(entryerr, EntryErrorPair{entry, err})
+		entry, eErr := c.makeOne(params)
+		entryerr = append(entryerr, EntryErrorPair{entry, eErr})
 	}
 
 	if entryerr.CheckPartFail() {
@@ -84,13 +91,13 @@ func (c *MongoCollection) createCore(factoryFuncParamSet []interface{}) (entries
 
 // Insert adds a ready-made entry into the database.
 func (c *MongoCollection) Insert(entry MongoEntry) (err error) {
-	c.semaphore.Exec(func() { err = c.insertCore([]MongoEntry{entry}) })
+	c.MutexExec(func() { err = c.insertCore([]MongoEntry{entry}) })
 
 	return err
 }
 
 func (c *MongoCollection) InsertBulk(entries []MongoEntry) (err error) {
-	c.semaphore.Exec(func() { err = c.insertCore(entries) })
+	c.MutexExec(func() { err = c.insertCore(entries) })
 
 	return err
 }
@@ -98,7 +105,7 @@ func (c *MongoCollection) InsertBulk(entries []MongoEntry) (err error) {
 // Create creates a new entry from specified param and factory function and inserts it into database. Please note that unless your factory depends on items in the collection you should run Insert instead.
 func (c *MongoCollection) Create(factoryFuncParams interface{}) (entry MongoEntry, err error) {
 	var entries []MongoEntry
-	c.semaphore.Exec(func() { entries, err = c.createCore([]interface{}{factoryFuncParams}) })
+	c.MutexExec(func() { entries, err = c.createCore([]interface{}{factoryFuncParams}) })
 
 	if err != nil {
 		return nil, err
@@ -114,7 +121,7 @@ func (c *MongoCollection) CreateBulk(factoryFuncParamSet []interface{}) (entries
 		}
 	}()
 
-	c.semaphore.Exec(func() { entries, err = c.createCore(factoryFuncParamSet) })
+	c.MutexExec(func() { entries, err = c.createCore(factoryFuncParamSet) })
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +146,7 @@ func (c *MongoCollection) ReadAll(result interface{}) (err error) {
 
 // Update modifies entry based on input parameters.
 func (c *MongoCollection) Update(entryID string, factoryFuncParam interface{}) (entry MongoEntry, status error) {
-	c.semaphore.Exec(func() {
+	c.MutexExec(func() {
 		b, idParseErr := GetObjectIDFromString(entryID)
 
 		var err error
@@ -160,7 +167,7 @@ func (c *MongoCollection) Update(entryID string, factoryFuncParam interface{}) (
 
 // Delete removes entry from the database.
 func (c *MongoCollection) Delete(entryID string) (status error) {
-	c.semaphore.Exec(func() {
+	c.MutexExec(func() {
 		var err error
 		b, idParseErr := GetObjectIDFromString(entryID)
 
@@ -177,7 +184,7 @@ func (c *MongoCollection) Delete(entryID string) (status error) {
 
 // DeleteAll removes all entries from the collection.
 func (c *MongoCollection) DeleteAll() (status error) {
-	c.semaphore.Exec(func() { status = c.Database.RemoveAll(c.Collection) })
+	c.MutexExec(func() { status = c.Database.RemoveAll(c.Collection) })
 
 	return status
 }
@@ -187,7 +194,6 @@ func NewMongoCollection(dbInstance *MongoDb, collName string) *MongoCollection {
 	c := MongoCollection{}
 	c.Database = dbInstance
 	c.Collection = collName
-	c.semaphore = semaphore.MakeSemaphore(1)
 
 	return &c
 }
