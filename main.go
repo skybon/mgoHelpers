@@ -90,6 +90,13 @@ func (db *MongoDb) RemoveAll(coll string) error {
 	return err
 }
 
+func (db *MongoDb) SessExec(cb func(*mgo.Session)) {
+	var sess = db.sess.Copy()
+	defer sess.Close()
+
+	cb(sess)
+}
+
 func GetDb() *MongoDb { return &MongoDb{} }
 
 type DbEntryBase struct {
